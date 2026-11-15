@@ -1,0 +1,53 @@
+# Tuned on the validation day, then frozen before the test day was scored.
+paths:
+  parquet_dir: ../bitcoin4_5_first17d_urls_and_format/out
+  output_dir: output
+split:
+  train:
+  - '2026-07-11'
+  val:
+  - '2026-07-12'
+  test:
+  - '2026-07-13'
+latency:
+  delta_s: 1
+vol:
+  half_life_s: 300
+  half_life_grid:
+  - 15
+  - 30
+  - 60
+  - 120
+  - 300
+quote:
+  h_min: 0.02
+  kappa: 2
+  gamma: 0.002
+  size: 10
+  inv_cap: 100
+  tau_stop: 30
+  gamma_grid:
+  - 0.0005
+  - 0.001
+  - 0.002
+  kappa_grid:
+  - 0.5
+  - 1
+  - 2
+  h_min_grid:
+  - 0.01
+  - 0.02
+  tau_stop_grid:
+  - 5
+  - 15
+  - 30
+model:
+  clip_lo: 0.005
+  clip_hi: 0.995
+  logistic_C: 1
+risk:
+  cvar_alpha: 0.2
+validation:
+  max_offset_iqr_ms: 50
+  max_missing_book_frac: 0.5
+frozen: true

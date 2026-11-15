@@ -1,0 +1,16 @@
+slug,error
+btc-updown-5m-1783728000,URLError: <urlopen error [Errno 54] Connection reset by peer>
+btc-updown-5m-1783728300,URLError: <urlopen error [Errno 54] Connection reset by peer>
+btc-updown-5m-1783728600,URLError: <urlopen error [Errno 54] Connection reset by peer>
+btc-updown-5m-1783728900,URLError: <urlopen error [Errno 54] Connection reset by peer>
+btc-updown-5m-1783729200,URLError: <urlopen error [Errno 54] Connection reset by peer>
+btc-updown-5m-1783728000,"URLError: <urlopen error [Errno 8] nodename nor servname provided, or not known>"
+btc-updown-5m-1783728300,"URLError: <urlopen error [Errno 8] nodename nor servname provided, or not known>"
+btc-updown-5m-1783728600,URLError: <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate in certificate chain (_ssl.c:1000)>
+btc-updown-5m-1783728900,URLError: <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate in certificate chain (_ssl.c:1000)>
+btc-updown-5m-1783729200,"URLError: <urlopen error [Errno 8] nodename nor servname provided, or not known>"
+btc-updown-5m-1783728300,URLError: <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1000)>
+btc-updown-5m-1783728000,URLError: <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1000)>
+btc-updown-5m-1783728600,URLError: <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1000)>
+btc-updown-5m-1783728900,URLError: <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1000)>
+btc-updown-5m-1783729200,URLError: <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1000)>
