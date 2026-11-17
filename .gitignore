@@ -1,0 +1,28 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+.mplconfig/
+
+# Converted market data (about 2 GB) and raw captures: rebuild with btc5m/src/convert/convert.py
+btc5m/data/
+bitcoin4_5_first17d_urls_and_format/raw/
+bitcoin4_5_first17d_urls_and_format/out/
+
+# Rebuilt on every run
+btc5m/output/*/cache/
+btc5m/output/pilot/
+btc5m/output/dev/
+*.log
+
+# The 15-market pilot outputs from the first commit, kept locally only
+btc5m/output/pilot15_old/
+
+# LaTeX and slide build files
+report/*.aux
+report/*.log
+report/*.out
+report/*.nav
+report/*.snm
+report/*.toc
+report/node_modules/

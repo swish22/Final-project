@@ -1,4 +1,10 @@
-"""Settlement PnL, markout, drawdown, and CVaR for a replay."""
+"""Settlement PnL, where it came from, spread, drawdown and tail risk for a replay.
+
+Every fill's profit at settlement splits into three parts that add up exactly:
+    spread capture      distance from the mid just before the fill to our price
+    30-second move      how the mid moved against (or for) us right after the fill
+    held to settlement  what the position made from then until the market resolved
+"""
 from __future__ import annotations
 
 import math
@@ -6,9 +12,12 @@ import math
 import numpy as np
 import pandas as pd
 
+from common import HOUR_S, block_bootstrap
+from mm.replay import FEE_RATE, REBATE_SHARE
+
 
 def cvar(pnls, alpha):
-    """Mean of the worst ceil(alpha * n) market PnLs. With 5 markets and alpha 0.2 this is the worst market."""
+    """Mean of the worst ceil(alpha * n) market PnLs."""
     values = np.sort(np.asarray(pnls, dtype=float))
     if len(values) == 0:
         return float("nan")
@@ -16,112 +25,72 @@ def cvar(pnls, alpha):
     return float(values[:count].mean())
 
 
-def max_drawdown(wealth):
-    wealth = np.asarray(wealth, dtype=float)
-    if len(wealth) == 0:
-        return 0.0
-    peak = np.maximum.accumulate(wealth)
-    return float(np.max(peak - wealth))
+def wealth_curve(market_rows):
+    """Cumulative settled PnL in time order, and the largest peak-to-trough loss.
+
+    The trough inside a market uses its lowest mark-to-mid equity, so a loss that
+    recovers before settlement still counts toward the drawdown.
+    """
+    rows = market_rows.sort_values("start_unix")
+    pnl = rows["pnl"].to_numpy(dtype=float)
+    low = rows["min_equity"].to_numpy(dtype=float)
+    settled = np.cumsum(pnl)
+    before = np.r_[0.0, settled[:-1]]
+    peak = np.maximum.accumulate(np.r_[0.0, settled])[:-1]
+    trough = np.minimum(before + low, settled)
+    drawdown = float(np.max(peak - trough)) if len(pnl) else 0.0
+    return rows["start_unix"].to_numpy(), settled, max(drawdown, 0.0)
 
 
-def attach_markout(fills, grid):
-    if fills is None or len(fills) == 0:
-        return fills
-    out = fills.copy()
-    mids = grid[["slug", "t", "pm_mid"]].drop_duplicates(["slug", "t"])
-    lookup = {(row.slug, int(row.t)): row.pm_mid for row in mids.itertuples(index=False)}
-    sign = np.where(out["side"].to_numpy() == "buy", 1.0, -1.0)
-    for horizon, column in ((5, "markout_5s"), (30, "markout_30s")):
-        future = [
-            lookup.get((slug, int(t) + horizon), np.nan)
-            for slug, t in zip(out["slug"], out["t"])
-        ]
-        out[column] = sign * (np.asarray(future, dtype=float) - out["price"].to_numpy(dtype=float))
-    return out
-
-
-def cumulative_wealth(paths):
-    """Mark-to-mid wealth concatenated across markets, settled at each market end."""
-    if paths is None or len(paths) == 0:
-        return np.array([0.0]), np.array([0.0])
-    wealth = [0.0]
-    clock = [0.0]
-    cursor = 0.0
-    running = 0.0
-    order = (
-        paths.loc[~paths["settled"].astype(bool)]
-        .groupby("slug", sort=False)["t"].min()
-        .sort_values()
-    )
-    for slug in order.index:
-        market = paths.loc[paths["slug"] == slug]
-        for equity in market.loc[~market["settled"].astype(bool), "equity"]:
-            cursor += 1
-            clock.append(cursor)
-            wealth.append(running + float(equity))
-        settled = market.loc[market["settled"].astype(bool), "equity"]
-        settle = float(settled.iloc[-1]) if len(settled) else 0.0
-        running += settle
-        cursor += 1
-        clock.append(cursor)
-        wealth.append(running)
-    return np.asarray(clock), np.asarray(wealth)
-
-
-def summarize(fills, paths, alpha=0.2):
-    """One row per model, fill rule, and split, plus a per-market PnL table."""
-    metric_rows = []
-    market_rows = []
-    if paths is None or len(paths) == 0:
-        return pd.DataFrame(), pd.DataFrame()
-    keys = ["model", "fill_rule", "split"]
-    for key, group in paths.groupby(keys, sort=False):
-        model, rule, split = key
-        settled = group.loc[group["settled"].astype(bool)]
-        pnls = settled["equity"].to_numpy(dtype=float)
-        _, wealth = cumulative_wealth(group)
-        if fills is None or len(fills) == 0:
-            ours = settled.iloc[0:0]
-        else:
-            mask = (
-                (fills["model"] == model)
-                & (fills["fill_rule"] == rule)
-                & (fills["split"] == split)
-            )
-            ours = fills.loc[mask]
-        metric_rows.append({
-            "split": split,
-            "model": model,
-            "fill_rule": rule,
-            "n_markets": int(len(settled)),
-            "n_fills": int(len(ours)),
-            "shares": float(ours["size"].sum()) if len(ours) else 0.0,
-            "pnl": float(pnls.sum()) if len(pnls) else 0.0,
-            "mean_market_pnl": float(pnls.mean()) if len(pnls) else 0.0,
-            "max_drawdown": max_drawdown(wealth),
-            "cvar": cvar(pnls, alpha),
-            "markout_5s": _weighted(ours, "markout_5s"),
-            "markout_30s": _weighted(ours, "markout_30s"),
+def summarize(summaries, alpha=0.05, n_boot=2000):
+    """One row per replay label. `summaries` has one row per market per label."""
+    rows = []
+    for label, g in summaries.groupby("label", sort=False):
+        pnl = g["pnl"].to_numpy(dtype=float)
+        blocks = g["start_unix"].to_numpy() // HOUR_S
+        mean, lo, hi, se = block_bootstrap(pnl, np.ones(len(pnl)), blocks, n_boot)
+        shares = float(g["shares"].sum())
+        per_share = (lambda col: float(g[col].sum()) / shares * 100.0) if shares > 0 else (lambda col: float("nan"))
+        _, _, drawdown = wealth_curve(g)
+        both = float(g["quote_both_s"].sum())
+        rows.append({
+            "label": label,
+            "markets": int(len(g)),
+            "fills": int(g["n_fills"].sum()),
+            "cross_fill_share": float(g["n_cross"].sum()) / max(1, int(g["n_fills"].sum())),
+            "shares": shares,
+            "pnl": float(pnl.sum()),
+            "pnl_per_market": mean,
+            "ci_lo": lo,
+            "ci_hi": hi,
+            "t_stat": mean / se if se and se > 0 else float("nan"),
+            "win_rate": float((pnl > 0).mean()),
+            "spread_capture_c": per_share("spread_capture"),
+            "markout_5s_c": per_share("markout_5s"),
+            "markout_30s_c": per_share("markout_30s"),
+            "pnl_per_share_c": float(pnl.sum()) / shares * 100.0 if shares > 0 else float("nan"),
+            "quoted_spread_c": float(g["spread_sum"].sum()) / both * 100.0 if both > 0 else float("nan"),
+            "uptime": float(g["quote_any_s"].sum()) / float(g["seconds"].sum()),
+            "mean_abs_inv": float(g["mean_abs_inv"].mean()),
+            "max_drawdown": drawdown,
+            "cvar": cvar(pnl, alpha),
+            "worst_market": float(pnl.min()),
+            "pnl_sd": float(pnl.std(ddof=1)) if len(pnl) > 1 else float("nan"),
+            "rebate_est": float(g["fee_equiv"].sum()) * FEE_RATE * REBATE_SHARE,
         })
-        for row in settled.itertuples(index=False):
-            market_rows.append({
-                "split": split,
-                "model": model,
-                "fill_rule": rule,
-                "slug": row.slug,
-                "pnl": row.equity,
-            })
-    metrics = pd.DataFrame(metric_rows)
-    markets = pd.DataFrame(market_rows)
-    if len(metrics):
-        metrics = metrics.sort_values(["split", "fill_rule", "model"]).reset_index(drop=True)
-    return metrics, markets
+    return pd.DataFrame(rows)
 
 
-def _weighted(fills, column):
-    if fills is None or len(fills) == 0 or column not in fills.columns:
-        return float("nan")
-    usable = fills.dropna(subset=[column])
-    if usable.empty or float(usable["size"].sum()) <= 0:
-        return float("nan")
-    return float(np.average(usable[column], weights=usable["size"]))
+def pnl_differences(summaries, pairs, n_boot=2000):
+    """Mean per-market PnL of label a minus label b on the same markets, with an interval."""
+    wide = summaries.pivot(index="slug", columns="label", values="pnl")
+    blocks = summaries.drop_duplicates("slug").set_index("slug")["start_unix"].reindex(wide.index) // HOUR_S
+    rows = []
+    for a, b in pairs:
+        if a not in wide.columns or b not in wide.columns:
+            continue
+        diff = (wide[a] - wide[b]).to_numpy(dtype=float)
+        mean, lo, hi, _ = block_bootstrap(diff, np.ones(len(diff)), blocks.to_numpy(), n_boot)
+        rows.append({"a": a, "b": b, "pnl_diff_per_market": mean, "ci_lo": lo, "ci_hi": hi,
+                     "significant": bool(lo > 0 or hi < 0)})
+    return pd.DataFrame(rows)

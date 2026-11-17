@@ -1,53 +1,160 @@
-# Tuned on the validation day, then frozen before the test day was scored.
+# Tuned on the validation days, then frozen before the test days were scored.
 paths:
-  parquet_dir: ../bitcoin4_5_first17d_urls_and_format/out
-  output_dir: output
+  index: ../bitcoin4_5_first17d_urls_and_format/bitcoin4_first17d_index.csv
+  parquet_dir: data/parquet
+  output_dir: output/final
+sample:
+  per_day: null
 split:
   train:
-  - '2026-07-11'
+  - 0
+  - 10
   val:
-  - '2026-07-12'
+  - 11
+  - 13
   test:
-  - '2026-07-13'
+  - 14
+  - 16
+refit_on_learning_days: true
+workers: 6
 latency:
-  delta_s: 1
+  scenarios:
+  - 0
+  - 1
+  robustness:
+  - 2
+  - 5
+spot:
+  proxy: mean
+  proxy_grid:
+  - coinbase
+  - binance
+  - mean
+basis:
+  enabled: true
 vol:
-  half_life_s: 300
+  half_life_s: 1200
+  sigma_scale: 1.5
   half_life_grid:
+  - 60
+  - 120
+  - 300
+  - 600
+  - 1200
+  - 2400
+  sigma_scale_grid:
+  - 1
+  - 1.25
+  - 1.5
+  - 1.75
+  - 2
+  - 2.5
+quote:
+  objective: sharpe
+  min_shares_per_market: 50
+  size: 10
+  inv_cap: 100
+  h_min_grid:
+  - 0.01
+  - 0.02
+  - 0.05
+  kappa_grid:
+  - 0
+  - 2
+  - 4
+  - 8
+  - 16
+  - 32
+  - 64
+  gamma_grid:
+  - 0
+  - 0.00025
+  - 0.0005
+  - 0.001
+  - 0.002
+  - 0.004
+  tau_stop_grid:
   - 15
   - 30
   - 60
   - 120
-  - 300
-quote:
-  h_min: 0.02
-  kappa: 2
-  gamma: 0.002
-  size: 10
-  inv_cap: 100
-  tau_stop: 30
-  gamma_grid:
-  - 0.0005
-  - 0.001
-  - 0.002
-  kappa_grid:
-  - 0.5
-  - 1
-  - 2
-  h_min_grid:
-  - 0.01
-  - 0.02
-  tau_stop_grid:
-  - 5
-  - 15
-  - 30
+  variants:
+    D1sel:
+      model: D1
+      min_shares_per_market: 5
+  params:
+    '0':
+      market:
+        h_min: 0.05
+        kappa: 0
+        gamma: 0
+        tau_stop: 120
+      G1:
+        h_min: 0.05
+        kappa: 0
+        gamma: 0
+        tau_stop: 120
+      D1:
+        h_min: 0.05
+        kappa: 2
+        gamma: 0.00025
+        tau_stop: 120
+      D1sel:
+        h_min: 0.01
+        kappa: 16
+        gamma: 0.001
+        tau_stop: 60
+    '1':
+      market:
+        h_min: 0.05
+        kappa: 0
+        gamma: 0
+        tau_stop: 120
+      G1:
+        h_min: 0.05
+        kappa: 0
+        gamma: 0
+        tau_stop: 120
+      D1:
+        h_min: 0.01
+        kappa: 2
+        gamma: 0
+        tau_stop: 120
+      D1sel:
+        h_min: 0.02
+        kappa: 16
+        gamma: 0.002
+        tau_stop: 60
 model:
   clip_lo: 0.005
   clip_hi: 0.995
   logistic_C: 1
+models:
+  scored:
+  - G0
+  - market
+  - G1
+  - D1
+  - D2
+  - D3
+  quoted:
+  - market
+  - G1
+  - D1
 risk:
-  cvar_alpha: 0.2
+  cvar_alpha: 0.05
 validation:
   max_offset_iqr_ms: 50
-  max_missing_book_frac: 0.5
+  max_strike_delay_s: 60
+  min_lead_s: 60
+  max_no_book_frac: 0.05
+  max_book_gap_s: 60
+  max_spot_missing_frac: 0.01
 frozen: true
+taker:
+  theta: 0.02
+  follow_max: 0.75
+  hold_s: 2
+  tau_min: 30
+  size: 10
+  frozen: true
